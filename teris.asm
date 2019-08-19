@@ -46,6 +46,12 @@ code		segment
 						call create_teris
 						call show_teris
 
+						;call revolve_teris
+						;call clear_teris
+						;call clear_old_teris_data
+						;call show_teris
+
+
 
 
 						mov cx,1
@@ -67,6 +73,8 @@ start_game:
 ;参数：无
 ;返回值：无
 new_int9:				push ax
+						push bx
+						push dx
 
 						in al,60H
 						pushf									;调用系统int9中断
@@ -84,23 +92,28 @@ new_int9:				push ax
 						je right
 						jmp int9Ret
 
-revolve:				call revolve_teris
-						jmp int9Ret
+revolve:				mov bl,byte ptr var[4]
+						cmp bl,5
+						je int9Ret
+						call revolve_teris
+						jmp checkMove
 
 right:					mov dx,1
 						mov ax,0
+						call move_action
 						jmp checkMove
 
 left:					mov dx,100H
 						mov ax,0
+						call move_action
 						jmp checkMove
 
 down:					mov dx,0
 						mov ax,1
+						call move_action
 						jmp checkMove
 
-checkMove:				call move_action
-						call clear_teris
+checkMove:				call clear_teris
 						call check_boundary
 						cmp al,'0'
 						je toMove
@@ -109,7 +122,9 @@ checkMove:				call move_action
 toMove:					call clear_old_teris_data
 						call show_teris
 
-int9Ret:				pop ax
+int9Ret:				pop dx
+						pop bx
+						pop ax
 						iret
 ;====================================================
 ;程序退出前 恢复系统int9
@@ -191,29 +206,6 @@ rand:					push ax
 						pop cx
 						pop dx
 						pop ax
-						ret
-;====================================================
-move_down:				push dx
-						push ax
-						push bx
-
-						mov dl,0
-						mov dh,0
-						mov ax,1
-						call move_action
-						call clear_teris
-
-						call check_boundary		;检查是否碰撞，若碰撞则不可移动
-						cmp al,'0'
-						je moveDown
-						call recover_teris
-
-moveDown:				call clear_old_teris_data
-						call show_teris
-
-moveDownRet:			pop bx
-						pop ax
-						pop dx
 						ret
 ;====================================================
 ;移动
@@ -470,15 +462,121 @@ checkBoundaryRet:		pop di
 						pop cx
 						ret
 ;====================================================
-revolve_teris:			push di
+;旋转
+;参数：无
+;返回值：无
+;说明：1.取方块左下角teris[0]坐标值作为参考点 
+;2.取每个方块的坐标值 
+;3.取参考点坐标与显示方块坐标差值绝对值 
+;4.所得结果行列互换 
+;5.互换结果加上参考点坐标即为旋转后坐标
+revolve_teris:			push ax
+						push bx
+						push cx
+						push dx
+						push si
+
+						mov ax,word ptr teris[0]	;取出参考点显存地址
+						mov dx,ax
+						mov bl,160
+						div bl						;此时获取al 为行 ah 为列
+
+						mov cx,4
+						mov si,2
+
+revolveTeris:			push ax						;保存参考点坐标
+						mov bx,word ptr teris[si]
+						mov word ptr teris_old[si],bx
 						push ax
+						mov ax,bx
+						mov bl,160
+						div bl
+						mov bx,ax					;获取方块坐标存入bx
+						pop ax						;取出ax 即参考点坐标
 
-						mov di,0
-						mov al,'u'
-						mov es:[di],al
+						cmp ah,bh					;获取列差绝对值
+						jb bh_ah
+						sub ah,bh
+						mov bh,ah
+						jmp next_value
 
+bh_ah:					sub bh,ah
+
+next_value:				cmp al,bl					;获取行 差绝对值			
+						jb bl_al
+						sub al,bl
+						mov bl,al
+						jmp get_revolve_address
+
+bl_al:					sub bl,al					;此时绝对值在bx中 bh:列 bl:行
+
+get_revolve_address:	mov ah,0					;获取移动后坐标，此处要进行转换坐标	
+						mov al,bh
+						mov bh,80
+						mul bh
+						add bl,bl							
+						mov bh,0
+						add ax,bx
+
+						add ax,dx
+						mov word ptr teris[si],ax
+
+						add si,2
 						pop ax
-						pop di
+						loop revolveTeris
+
+						mov word ptr teris_old[0],dx		;将参考点坐标存入old Teris 区域 计算旋转后 参考点
+						call get_ref_point
+						mov word ptr teris[0],ax
+
+						pop si
+						pop dx
+						pop cx
+						pop bx
+						pop ax
+						ret
+;===================================================
+;获取旋转后的参考点
+;参数：无
+;返回值：ax
+;说明：取所有方块的行最大值 列最小值 即为旋转需要获取的参考点 计算地址存入ax 返回
+get_ref_point:			push bx
+						push cx
+						push dx
+						push si
+
+						mov dx,0FF00H					;设置dx 为右上角最顶点
+						mov si,2
+						mov cx,4
+
+getRefPoint:			mov bx,word ptr teris[si]
+						mov ax,0
+						mov ax,bx
+						mov bl,160
+						div bl
+						cmp dh,ah
+						jb getMaxRow
+						mov dh,ah
+
+getMaxRow:				cmp al,dl
+						jb continue
+						mov dl,al
+
+continue:				add si,2
+						loop getRefPoint
+
+						mov ax,0
+						mov al,dl
+						mov bl,160
+						mul bl
+						mov dl,dh
+						mov dh,0
+						add ax,dx
+
+						pop si
+						pop dx
+						pop cx
+						pop bx
 						ret
 ;===================================================
 ;初始化游戏屏幕
