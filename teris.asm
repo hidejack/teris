@@ -32,7 +32,7 @@ stack		segment stack
 stack 		ends
 
 code		segment
-		start:			mov bx,stack			
+		start:			mov bx,stack
 						mov ss,bx
 						mov bp,128
 
@@ -40,37 +40,36 @@ code		segment
 						call clear_screen
 						call init_screen
 
-						;call save_sys_int9
-						;call set_new_int9
+						call save_sys_int9
+						call set_new_int9
 
 						call create_teris
 						call show_teris
 
-						call move_left
-						call move_left
-						call move_left
 
 
 						mov cx,1
 s2:						call start_game
 						mov cx,2
 						loop s2
-		
 
 quit:					call recover_int9
 						mov ax,4C00H
 						int 21H
 
 ;====================================================
-start_game:				
+start_game:
 						mov ax,1
 
 						ret
 ;====================================================
+;自己定义的int9 中断程序
+;参数：无
+;返回值：无
 new_int9:				push ax
 
 						in al,60H
-						pushf
+						pushf									;调用系统int9中断
 						call dword ptr sys_address[0]
 
 						cmp al,1
@@ -90,37 +89,32 @@ revolve:				call revolve_teris
 
 right:					mov dx,1
 						mov ax,0
-						call move_action
-						call check_boundary
-						cmp al,2FH
-						jne int9Ret
-						call clear_teris
-						call show_teris
-						jmp int9Ret
+						jmp checkMove
 
 left:					mov dx,100H
 						mov ax,0
-						call move_action
-						call check_boundary
-						cmp al,2FH
-						jne int9Ret
-						call clear_teris
-						call show_teris
-						jmp int9Ret
+						jmp checkMove
 
 down:					mov dx,0
 						mov ax,1
-						call move_action
-						call check_boundary
-						cmp al,2FH
-						jne int9Ret
+						jmp checkMove
+
+checkMove:				call move_action
 						call clear_teris
+						call check_boundary
+						cmp al,'0'
+						je toMove
+						call recover_teris
+
+toMove:					call clear_old_teris_data
 						call show_teris
-						jmp int9Ret
 
 int9Ret:				pop ax
 						iret
 ;====================================================
+;程序退出前 恢复系统int9
+;参数：无
+;返回值：无
 recover_int9:			push ax
 						push es
 
@@ -138,6 +132,9 @@ recover_int9:			push ax
 						pop ax
 						ret
 ;====================================================
+;修改0:[9*4] 位置 int9 中断程序 cs ip
+;参数：无
+;返回值：无
 set_new_int9:			push bx
 						push es
 
@@ -152,16 +149,15 @@ set_new_int9:			push bx
 						pop bx
 						ret
 ;====================================================
-;保存系统int9
+;保存系统int9 将系统int9 中断指令cs，ip 保存到内存sys_address中
 ;参数：无
 ;返回值：无
-;说明：将系统int9 中断指令cs，ip 保存到内存sys_address中
 save_sys_int9:			push bx
 						push es
 
 						mov bx,0
 						mov es,bx
-						cli 
+						cli
 						push es:[9*4]
 						pop sys_address[0]
 						push es:[9*4+2]
@@ -181,80 +177,43 @@ rand:					push ax
 						push cx
 
 						push dx
-						sti 
+						sti
 						mov ah,0	;读时钟计数器
 						int 1AH
 						mov ax,dx
 						mov ah,0	;高位清0 此时 al 范围 0-255
 						pop dx
 						div dl		;除dl 获取 0-dl 范围内的余数
-						
+
 						mov bx,0
 						mov bl,ah 	;ah 中余数 存 bl中，作为随机数使用
 
 						pop cx
 						pop dx
 						pop ax
-						ret 
-;====================================================
-move_right:				push dx
-						push ax
-
-						mov dl,1
-						mov dh,0
-						mov ax,0
-						call move_action
-
-						call check_boundary		;检查是否碰撞，若碰撞则不可移动
-						cmp al,2FH
-						jne moveRightRet
-						call clear_teris
-						call show_teris
-
-moveRightRet:			pop ax
-						pop dx
-						ret
-;====================================================
-move_left:				push dx
-						push ax
-
-						mov dl,0
-						mov dh,1
-						mov ax,0
-						call move_action
-
-						call check_boundary		;检查是否碰撞，若碰撞则不可移动
-						cmp al,2FH
-						je moveLeft
-						jmp moveLeftRet
-
-moveLeft:				call clear_teris
-						;call show_teris
-						mov al,1
-						mov byte ptr es:[160*8],al
-						
-moveLeftRet:			pop ax
-						pop dx
 						ret
 ;====================================================
 move_down:				push dx
 						push ax
+						push bx
 
 						mov dl,0
 						mov dh,0
 						mov ax,1
 						call move_action
+						call clear_teris
 
 						call check_boundary		;检查是否碰撞，若碰撞则不可移动
-						cmp al,2FH
-						jne moveDownRet
-						call clear_teris
+						cmp al,'0'
+						je moveDown
+						call recover_teris
+
+moveDown:				call clear_old_teris_data
 						call show_teris
-						mov al,2
-						mov byte ptr es:[160*9],al
-						
-moveDownRet:			pop ax
-						pop dx					
+
+moveDownRet:			pop bx
+						pop ax
+						pop dx
 						ret
 ;====================================================
 ;移动
@@ -271,25 +230,30 @@ move_action:			push ax
 						mov cx,5
 
 moveAction:				push dx
+						push ax
 						mov bx,teris[si]
 						push bx
 						pop teris_old[si]		;保存原有地址
-						add dh,dh				;对参数处理
+
+						add dh,dh
 						add dl,dl
 
 						push dx
-						mov dl,160
-						mul dl
 
-						mov dl,dh
+						mov dl,dh				;计算左移
 						mov dh,0
-						sub bx,dx				;计算移动后坐标
-						pop dx
+						sub bx,dx
+
+						pop dx					;计算右移
 						mov dh,0
 						add bx,dx
+
+						mov dl,160				;计算下移
+						mul dl
 						add bx,ax
 						mov word ptr teris[si],bx	;存储到teris中
 						add si,2
+						pop ax
 						pop dx
 						loop moveAction
 
@@ -298,12 +262,49 @@ moveAction:				push dx
 						pop cx
 						pop bx
 						pop ax
-						ret	
+						ret
+;====================================================
+;清楚old_teris区域中数据
+;参数：无
+;返回值：无
+clear_old_teris_data:	push cx
+						push bx
+						push si
+
+						mov cx,5
+						mov bx,0
+						mov si,0
+clearOldTeris:			mov teris_old[si],bx
+						inc si
+						loop clearOldTeris
+
+						pop si
+						pop bx
+						pop cx
+						ret
+;====================================================
+;恢复teris区域中数据：将old_teris 中数据还给teris
+;参数：无
+;返回值：无
+recover_teris:			push cx
+						push si
+
+						mov cx,5
+						mov si,0
+
+recoverTeris:			push word ptr teris_old[si]
+						pop word ptr teris[si]
+						add si,2
+						loop recoverTeris
+
+						pop si
+						pop cx
+						ret
 ;====================================================
 ;创建俄罗斯方块
 ;参数：无
 ;返回值：无 （修改内存区域 teris）
-;说明：俄罗斯方块共5个点，第一个点为最下方最左边的参考点 L1:DCH	
+;说明：俄罗斯方块共5个点，第一个点为最下方最左边的参考点 L1:DCH
 create_teris:			push dx
 						push bx
 
@@ -372,6 +373,9 @@ createTerisRet:			pop bx
 						pop dx
 						ret
 ;===================================================
+;显示俄罗斯方块  teris区域中显存地址
+;参数：无
+;返回值：无
 show_teris:				push bx
 						push cx
 						push si
@@ -388,10 +392,10 @@ show_teris:				push bx
 showTeris:				mov di,word ptr teris[si]
 						mov es:[di],bl
 						inc di
-						mov es:[di],bh	
+						mov es:[di],bh
 						mov ch,0
 						add si,2
-						loop showTeris 
+						loop showTeris
 
 						pop di
 						pop si
@@ -411,12 +415,10 @@ clear_teris:			push cx
 						mov si,0
 
 clearTeris:				mov bx,word ptr teris_old[si]
-						mov dx,0
-						mov word ptr teris_old[si],dx
 						mov dx,0700H
 						mov es:[bx],dx
 						add si,2
-						loop clearTeris	
+						loop clearTeris
 
 						pop dx
 						pop si
@@ -426,7 +428,7 @@ clearTeris:				mov bx,word ptr teris_old[si]
 ;====================================================
 ;检查边界
 ;参数：无
-;返回值：上下边框碰撞：al=7DH 左右边框碰撞：al=7EH 碰撞方块：al=7FH 无碰撞:2FH
+;返回值：上下边框碰撞：bx=7DH 左右边框碰撞：bx=7EH 碰撞方块：bx=7FH 无碰撞:2FH
 ;检查teris 区中的teris 是否产生碰撞
 check_boundary:			push cx
 						push si
@@ -434,13 +436,14 @@ check_boundary:			push cx
 
 						mov cx,5
 						mov si,0
+						mov bx,0
 
 checkBoundary:			mov di,word ptr teris[si]
 						mov al,byte ptr es:[di]
-						mov ah,ds:[0CH]
+						mov ah,ds:[1CH]
 						cmp al,ah
 						je bottomCollision
-						mov ah,ds:[0DH]
+						mov ah,ds:[1DH]
 						cmp al,ah
 						je sideCollision
 						mov ah,var[0]
@@ -450,16 +453,16 @@ checkBoundary:			mov di,word ptr teris[si]
 						add si,2
 						loop checkBoundary
 
-						mov al,2FH
+						mov al,'0'
 						jmp checkBoundaryRet
 
-terisCollision:			mov al,7FH
+terisCollision:			mov al,'1'
 						jmp checkBoundaryRet
 
-bottomCollision:		mov al,7DH
+bottomCollision:		mov al,'2'
 						jmp checkBoundaryRet
 
-sideCollision:			mov al,7EH
+sideCollision:			mov al,'3'
 						jmp checkBoundaryRet
 
 checkBoundaryRet:		pop di
@@ -469,7 +472,7 @@ checkBoundaryRet:		pop di
 ;====================================================
 revolve_teris:			push di
 						push ax
-						
+
 						mov di,0
 						mov al,'u'
 						mov es:[di],al
@@ -502,7 +505,7 @@ showHorizontalFrame:	mov bl,ds:[si]
 						loop showHorizontalFrame
 
 						inc si
-						pop di			
+						pop di
 						mov cx,22
 
 showVerticalFrame:		mov bl,ds:[si]
@@ -514,7 +517,7 @@ showVerticalFrame:		mov bl,ds:[si]
 						mov di,160 * 5 + 60 + 15 * 2 ; 第6行 游戏框右面空3格显示
 						mov si,0
 						mov cx,4
-			
+
 showLetter:				push cx
 						mov cx,0
 						add di,160
@@ -546,9 +549,9 @@ initNumber:				mov cx,3		;显示分数等信息
 s:						call show_number
 						inc bx
 						loop s
-			
+
 initScreenRet:			pop ds
-						pop es	
+						pop es
 						pop bx
 						pop cx
 						pop di
@@ -573,7 +576,7 @@ show_number:			push ax
 						mov di, word ptr var[bx]
 						add di,4
 						mov bx,0
-						
+
 parseNumber:			mov dl,10
 						div dl
 						mov bl,ah
@@ -611,7 +614,7 @@ init_reg:				push bx
 clear_screen:			push bx
 						push dx
 						push cx
-						push es		
+						push es
 
 						mov bx,0B800H
 						mov es,bx
@@ -622,7 +625,7 @@ clear_screen:			push bx
 clearScreen:			mov es:[bx],dx
 						add bx,2
 						loop clearScreen
-						
+
 						pop es
 						pop cx
 						pop dx
