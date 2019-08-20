@@ -25,6 +25,7 @@ teris_old				dw  5	dup (0)	;移动旋转之前的方块显存位置
 sys_address				dw	2	dup	(0)	;用来保存系统int9中断的cs，ip
 
 data		ends
+						
 
 
 stack		segment stack
@@ -53,6 +54,9 @@ code		segment
 						;call clear_old_teris_data
 						;call show_teris
 
+						;mov di,160*21+62
+						;call move_down_all
+
 
 
 
@@ -66,9 +70,29 @@ quit:					call recover_int9
 						int 21H
 
 ;====================================================
-start_game:
-						mov ax,1
+start_game:				push cx
 
+						call delay 
+						call move_down
+
+						pop cx
+						ret
+;====================================================
+;延长
+;参数：无
+;返回值：无
+delay:					push ax
+						push cx
+						push dx
+
+						mov ah,86H
+						mov cx,0FH
+						mov dx,2420
+						int 15H
+
+						pop dx
+						pop cx
+						pop ax
 						ret
 ;====================================================
 ;自己定义的int9 中断程序
@@ -142,7 +166,8 @@ move_down:				push dx
 						call clear_old_teris_data
 						call show_teris
 
-						call clear_row
+						call eliminate
+						
 						call create_teris
 						call show_number
 						call show_teris
@@ -237,18 +262,116 @@ rand:					push ax
 						pop ax
 						ret
 ;====================================================
-clear_row:				push bx
+;检查清除填满的行
+;参数：无
+;返回值：无
+;四个点的坐标分别为：160*2+62  160*2+80  160*21+62  160*21+80
+eliminate:				push ax
+						push bx
+						push cx
 						push dx
-
-						mov bl,byte ptr var[5]
+						push di
+						
+						mov bl,byte ptr var[5]				;随机生成俄罗斯方块
 						mov byte ptr var[4],bl
 						mov dx,0
 						mov dl,7
 						call rand
 						mov byte ptr var[5],bl
 
+						mov di,160*21+62
+						mov dx,0						;存储消除的行
+						mov cx,20
+						
+check_row:				push cx
+						mov bx,0
+						mov cx,10
+
+check_one:				mov al,byte ptr es:[bx+di]
+						mov ah,byte ptr var[0]
+						cmp al,ah
+						jne check_next_row
+						add bx,2
+						loop check_one
+						call clear_row
+						call move_down_all
+						add di,160						;检查完如果消除1行则需要从这一行继续检查
+						pop cx
+						inc cx
+						push cx
+						inc dx
+
+check_next_row:			sub di,160
+						pop cx
+						loop check_row
+
+						mov bl, byte ptr var[1]			;更新分数和消除行数
+						mov al,byte ptr var[3]
+						add bl,dl
+						add al,dl
+						mov byte ptr var[1],bl
+						mov byte ptr var[3],al
+
+
+						pop di
 						pop dx
+						pop cx
 						pop bx
+						pop ax
+						ret
+;====================================================
+;整体下移一行
+;参数：di 下移起始行
+;返回值：无
+move_down_all:			push ax
+						push bx
+						push cx
+						push di
+
+						
+
+moveDownAll:			sub di,160
+						mov bx,0
+						mov cx,10
+						mov ax,160*2+62
+						cmp ax,di
+						ja moveDownAllRet
+
+moveRow:				mov al,byte ptr es:[di+bx]
+						mov ah,byte ptr var[0]
+						cmp al,ah
+						jne dontSwap
+						push word ptr es:[di+bx]
+						pop word ptr es:[di+bx-160]
+
+dontSwap:				add bx,2
+						loop moveRow
+						jmp moveDownAll
+
+moveDownAllRet:			pop di
+						pop cx
+						pop bx
+						pop ax	
+						ret
+;====================================================
+;清除一行
+;参数：di 行的起始位置
+;返回值：无
+clear_row:				push ax
+						push bx
+						push cx
+
+						mov cx,10
+						mov ax,0700H
+						mov bx,0
+
+clearRow:				mov word ptr es:[di+bx],ax
+						add bx,2
+						loop clearRow
+
+						pop cx
+						pop bx
+						pop ax
 						ret
 ;====================================================
 ;移动
@@ -345,7 +468,6 @@ create_teris:			push dx
 
 						mov word ptr teris[2],226H
 						mov bl, byte ptr var[4]
-						;call init_reg
 
 createT:				cmp bl,0
 						jne createJ
@@ -622,8 +744,6 @@ continue:				add si,2
 ;初始化游戏屏幕
 ;参数：无
 ;返回值：无
-;说明：屏幕上边框左边坐标点 L1:160+60 L2:160*21 R1:160+60+22 R2:160*21+60+22
-;						L1:	DCH		L2:	D20H	R1:	F2H		R2:D78H
 init_screen:			push bx
 						push cx
 						push dx
@@ -843,8 +963,6 @@ init_reg:				push bx
 						mov es,bx
 						pop bx
 						ret
-
-						
 ;====================================================
 ;清理屏幕
 ;参数：无
