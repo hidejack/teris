@@ -5,7 +5,7 @@ data 		segment
 						db	'SCORE:',0
 						db	'LEVEL:',0
 						db	'DELROW:',0
-						db	'TIME:',0
+						db	'NEXT:',0
 						db	'=','|',0,0
 
 						;用来显示数字 ，内存 为 12 分 则内存中为 0CH
@@ -13,11 +13,11 @@ data 		segment
 num_str					db	'0','1','2','3','4','5','6','7','8','9'
 
 							;E黄色D 红色B 亮绿色A 绿色6 橙色7 暗黄色8 灰色
-color					db	0EH,0DH,0BH,0AH,6,7,8
+color					db	0EH,0DH,0BH,0AH,6,7,3
 
 						;0显示方块1分数2难度3消除行数4当前方块5下一个方块E旋转状态
 						;67分数显存地址89难度显存AB消除行数显示CD时间显存
-var						db	3,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
+var						db	3,0,1,0,0,6,0,0,0,0,0,0,0,0,0,1
 
 teris 					dw	5	dup	(0)	;俄罗斯方块的4个点显存位置
 teris_old				dw  5	dup (0)	;移动旋转之前的方块显存位置
@@ -39,6 +39,8 @@ code		segment
 						call init_reg
 						call clear_screen
 						call init_screen
+						call init_var
+						call show_number
 
 						call save_sys_int9
 						call set_new_int9
@@ -108,10 +110,8 @@ left:					mov dx,100H
 						call move_action
 						jmp checkMove
 
-down:					mov dx,0
-						mov ax,1
-						call move_action
-						jmp checkMove
+down:					call move_down
+						jmp int9Ret
 
 checkMove:				call clear_teris
 						call check_boundary
@@ -126,6 +126,35 @@ int9Ret:				pop dx
 						pop bx
 						pop ax
 						iret
+;====================================================
+move_down:				push dx
+						push ax
+
+						mov dx,0
+						mov ax,1
+						call move_action
+						call clear_teris
+						call check_boundary
+						cmp al,'0'
+						je canMoveDown
+
+						call recover_teris
+						call clear_old_teris_data
+						call show_teris
+
+						call clear_row
+						call create_teris
+						call show_number
+						call show_teris
+						jmp moveDownRet
+
+canMoveDown:			call clear_old_teris_data
+						call show_teris
+
+moveDownRet:			pop ax
+						pop dx
+						ret
+
 ;====================================================
 ;程序退出前 恢复系统int9
 ;参数：无
@@ -206,6 +235,20 @@ rand:					push ax
 						pop cx
 						pop dx
 						pop ax
+						ret
+;====================================================
+clear_row:				push bx
+						push dx
+
+						mov bl,byte ptr var[5]
+						mov byte ptr var[4],bl
+						mov dx,0
+						mov dl,7
+						call rand
+						mov byte ptr var[5],bl
+
+						pop dx
+						pop bx
 						ret
 ;====================================================
 ;移动
@@ -301,11 +344,8 @@ create_teris:			push dx
 						push bx
 
 						mov word ptr teris[2],226H
-						mov dx,0
-						mov dl,7
-						call rand
-						mov byte ptr var[4],bl
-						call init_reg
+						mov bl, byte ptr var[4]
+						;call init_reg
 
 createT:				cmp bl,0
 						jne createJ
@@ -320,7 +360,7 @@ createJ:				cmp bl,1
 						mov word ptr teris[0],226H-2+0A0H
 						mov word ptr teris[4],226H-2
 						mov word ptr teris[6],226H+2
-						mov word ptr teris[8],226H+2+0A0H
+						mov word ptr teris[8],226H-0A0H-2
 						jmp createTerisRet
 
 createL:				cmp bl,2
@@ -403,8 +443,8 @@ clear_teris:			push cx
 						push si
 						push dx
 
-						mov cx,5
-						mov si,0
+						mov cx,4
+						mov si,2
 
 clearTeris:				mov bx,word ptr teris_old[si]
 						mov dx,0700H
@@ -426,8 +466,8 @@ check_boundary:			push cx
 						push si
 						push di
 
-						mov cx,5
-						mov si,0
+						mov cx,4
+						mov si,2
 						mov bx,0
 
 checkBoundary:			mov di,word ptr teris[si]
@@ -465,10 +505,10 @@ checkBoundaryRet:		pop di
 ;旋转
 ;参数：无
 ;返回值：无
-;说明：1.取方块左下角teris[0]坐标值作为参考点 
-;2.取每个方块的坐标值 
-;3.取参考点坐标与显示方块坐标差值绝对值 
-;4.所得结果行列互换 
+;说明：1.取方块左下角teris[0]坐标值作为参考点
+;2.取每个方块的坐标值
+;3.取参考点坐标与显示方块坐标差值绝对值
+;4.所得结果行列互换
 ;5.互换结果加上参考点坐标即为旋转后坐标
 revolve_teris:			push ax
 						push bx
@@ -502,7 +542,7 @@ revolveTeris:			push ax						;保存参考点坐标
 
 bh_ah:					sub bh,ah
 
-next_value:				cmp al,bl					;获取行 差绝对值			
+next_value:				cmp al,bl					;获取行 差绝对值
 						jb bl_al
 						sub al,bl
 						mov bl,al
@@ -510,11 +550,11 @@ next_value:				cmp al,bl					;获取行 差绝对值
 
 bl_al:					sub bl,al					;此时绝对值在bx中 bh:列 bl:行
 
-get_revolve_address:	mov ah,0					;获取移动后坐标，此处要进行转换坐标	
+get_revolve_address:	mov ah,0					;获取移动后坐标，此处要进行转换坐标
 						mov al,bh
 						mov bh,80
 						mul bh
-						add bl,bl							
+						add bl,bl
 						mov bh,0
 						add ax,bx
 
@@ -584,12 +624,18 @@ continue:				add si,2
 ;返回值：无
 ;说明：屏幕上边框左边坐标点 L1:160+60 L2:160*21 R1:160+60+22 R2:160*21+60+22
 ;						L1:	DCH		L2:	D20H	R1:	F2H		R2:D78H
-init_screen:			push si
-						push di
+init_screen:			push bx
 						push cx
-						push bx
+						push dx
+						push si
+						push di
 						push es
 						push ds
+
+						mov dx,0					;创建要出现的方块
+						mov dl,7
+						call rand
+						mov byte ptr var[4],bl
 
 						mov si,1CH
 						mov di,160 * 1 + 60
@@ -639,39 +685,59 @@ showRowLetterOver:		pop cx
 						mov word ptr var[si],dx
 						pop si
 						inc si
-						jcxz initNumber
+						;jcxz initNumber
 						loop showLetter
 
-initNumber:				mov cx,3		;显示分数等信息
-						mov bx,1
-s:						call show_number
-						inc bx
-						loop s
+						;call show_number
 
 initScreenRet:			pop ds
 						pop es
-						pop bx
-						pop cx
 						pop di
 						pop si
+						pop dx
+						pop cx
+						pop bx
+						ret
+;====================================================
+init_var:				push bx
+						push dx
+
+						mov dx,3
+						mov byte ptr var[0],dl
+						mov byte ptr var[1],dh
+						mov dl,1
+						mov byte ptr var[2],dl
+						mov dx,0
+						mov dl,7
+						call rand
+						mov byte ptr var[4],bl
+						call rand
+						mov byte ptr var[5],bl
+
+						pop dx
+						pop bx
 						ret
 ;====================================================
 ;显示数字
-;参数：bx
+;参数：无
 ;返回值：无
-;说明：显示SCORE（bx=1）、LEVEL（bx=2）、DELROW（bx=3） 后数字信息
 show_number:			push ax
 						push di
 						push si
 						push dx
 						push bx
+						push cx
 
+						mov cx,3
+						mov bx,1
+
+showNumber:				push bx
 						mov ax,0
 						mov dx,0
 						mov al,byte ptr var[bx]
 						add bx,bx
 						add bx,4
-						mov di, word ptr var[bx]
+						mov di, word ptr var[bx]		;获取要显示的显存地址
 						add di,4
 						mov bx,0
 
@@ -684,10 +750,82 @@ parseNumber:			mov dl,10
 						sub di,2
 						mov ah,0
 						cmp al,0
-						je showNumberRet
+						je showRowNumber
 						jmp parseNumber
 
-showNumberRet:			pop bx
+showRowNumber:			pop bx
+						inc bx
+						loop showNumber
+
+						mov di,word ptr var[0CH]
+						add di,160
+
+clearNextTeris:			mov ax,0700H
+						mov word ptr es:[di],ax
+						mov word ptr es:[di-2],ax
+						mov word ptr es:[di+2],ax
+						mov word ptr es:[di+4],ax
+						mov word ptr es:[di-160],ax
+						mov word ptr es:[di-160+2],ax
+						mov word ptr es:[di-160-2],ax
+
+showNextTeris:			mov bl,byte ptr var[5]
+						mov bh,0
+						mov ah,byte ptr color[bx]
+						mov al,byte ptr var[0]
+
+						mov word ptr es:[di],ax
+
+createNextT:			cmp bl,0
+						jne createNextJ
+						mov word ptr es:[di-2],ax
+						mov word ptr es:[di+2],ax
+						mov word ptr es:[di-160],ax
+						jmp showNumberRet
+
+createNextJ:			cmp bl,1
+						jne createNextL
+						mov word ptr es:[di-2],ax
+						mov word ptr es:[di+2],ax
+						mov word ptr es:[di-160-2],ax
+						jmp showNumberRet
+
+createNextL:			cmp bl,2
+						jne createNextS
+						mov word ptr es:[di-2],ax
+						mov word ptr es:[di+2],ax
+						mov word ptr es:[di+2-160],ax
+						jmp showNumberRet
+
+createNextS:			cmp bl,3
+						jne createNextI
+						mov word ptr es:[di-2],ax
+						mov word ptr es:[di-160],ax
+						mov word ptr es:[di+2-160],ax
+						jmp showNumberRet
+
+createNextI:			cmp bl,4
+						jne createNextO
+						mov word ptr es:[di-2],ax
+						mov word ptr es:[di+2],ax
+						mov word ptr es:[di+4],ax
+						jmp showNumberRet
+
+createNextO:			cmp bl,5
+						jne createNextZ
+						mov word ptr es:[di+2],ax
+						mov word ptr es:[di+2-160],ax
+						mov word ptr es:[di-160],ax
+						jmp showNumberRet
+
+createNextZ:			mov word ptr es:[di-160],ax
+						mov word ptr es:[di-160-2],ax
+						mov word ptr es:[di+2],ax
+						jmp showNumberRet
+
+
+showNumberRet:			pop cx
+						pop bx
 						pop dx
 						pop si
 						pop di
