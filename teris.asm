@@ -25,7 +25,7 @@ teris_old				dw  5	dup (0)	;移动旋转之前的方块显存位置
 sys_address				dw	2	dup	(0)	;用来保存系统int9中断的cs，ip
 
 data		ends
-						
+
 
 
 stack		segment stack
@@ -72,13 +72,13 @@ quit:					call recover_int9
 ;====================================================
 start_game:				push cx
 
-						call delay 
+						call delay
 						call move_down
 
 						pop cx
 						ret
 ;====================================================
-;延长
+;延时
 ;参数：无
 ;返回值：无
 delay:					push ax
@@ -167,7 +167,7 @@ move_down:				push dx
 						call show_teris
 
 						call eliminate
-						
+
 						call create_teris
 						call show_number
 						call show_teris
@@ -271,7 +271,7 @@ eliminate:				push ax
 						push cx
 						push dx
 						push di
-						
+
 						mov bl,byte ptr var[5]				;随机生成俄罗斯方块
 						mov byte ptr var[4],bl
 						mov dx,0
@@ -282,7 +282,7 @@ eliminate:				push ax
 						mov di,160*21+62
 						mov dx,0						;存储消除的行
 						mov cx,20
-						
+
 check_row:				push cx
 						mov bx,0
 						mov cx,10
@@ -326,32 +326,37 @@ check_next_row:			sub di,160
 move_down_all:			push ax
 						push bx
 						push cx
+						push dx
 						push di
 
-						
+						mov ax,160*2+62
 
 moveDownAll:			sub di,160
 						mov bx,0
 						mov cx,10
-						mov ax,160*2+62
-						cmp ax,di
-						ja moveDownAllRet
+						mov dx,di
+						cmp ax,dx
+						je moveDownAllRet
 
-moveRow:				mov al,byte ptr es:[di+bx]
-						mov ah,byte ptr var[0]
-						cmp al,ah
+moveRow:				mov dl,byte ptr es:[di+bx]
+						mov dh,byte ptr var[0]
+						cmp dl,dh
 						jne dontSwap
+
 						push word ptr es:[di+bx]
-						pop word ptr es:[di+bx-160]
+						pop word ptr es:[di+bx+160]
+						mov dx,0700H
+						mov es:[di+bx],dx
 
 dontSwap:				add bx,2
 						loop moveRow
 						jmp moveDownAll
 
 moveDownAllRet:			pop di
+						pop dx
 						pop cx
 						pop bx
-						pop ax	
+						pop ax
 						ret
 ;====================================================
 ;清除一行
